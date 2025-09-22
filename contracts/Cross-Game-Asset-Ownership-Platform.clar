@@ -45,6 +45,7 @@
 
 (define-data-var last-asset-id uint u0)
 (define-data-var platform-fee uint u25)
+(define-data-var creator-royalty uint u50)
 
 (define-map rental-listings
   { asset-id: uint }
@@ -147,18 +148,22 @@
       (buyer tx-sender)
       (price (get price listing))
       (seller (get seller listing))
+      (asset-info (unwrap-panic (map-get? asset-details { asset-id: asset-id })))
+      (creator (get creator asset-info))
     )
     (try! (nft-transfer? game-asset asset-id seller buyer))
     (map-set asset-details
       { asset-id: asset-id }
-      (merge (unwrap-panic (map-get? asset-details { asset-id: asset-id })) { current-owner: buyer })
+      (merge asset-info { current-owner: buyer })
     )
-    (let 
+    (let
       (
         (platform-fee-amount (/ (* price (var-get platform-fee)) u1000))
-        (seller-amount (- price platform-fee-amount))
+        (royalty-amount (/ (* price (var-get creator-royalty)) u1000))
+        (seller-amount (- (- price platform-fee-amount) royalty-amount))
       )
       (try! (stx-transfer? platform-fee-amount buyer contract-owner))
+      (try! (stx-transfer? royalty-amount buyer creator))
       (try! (stx-transfer? seller-amount buyer seller))
     )
     (map-delete marketplace-listings { asset-id: asset-id })
