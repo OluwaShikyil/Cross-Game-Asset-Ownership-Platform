@@ -9,6 +9,7 @@
 (define-constant err-rental-expired (err u107))
 (define-constant err-rental-active (err u108))
 (define-constant err-invalid-duration (err u109))
+(define-constant err-max-level-reached (err u110))
 
 (define-non-fungible-token game-asset uint)
 
@@ -46,6 +47,8 @@
 (define-data-var last-asset-id uint u0)
 (define-data-var platform-fee uint u25)
 (define-data-var creator-royalty uint u50)
+(define-data-var upgrade-fee uint u1000000)
+(define-data-var max-level uint u10)
 
 (define-map rental-listings
   { asset-id: uint }
@@ -67,6 +70,11 @@
   }
 )
 
+(define-map asset-levels
+  { asset-id: uint }
+  { level: uint }
+)
+
 (define-public (mint-game-asset (name (string-ascii 50)) (game-id (string-ascii 50)) (asset-type (string-ascii 20)))
   (let
     (
@@ -86,6 +94,7 @@
         created-at: burn-block-height
       }
     )
+    (map-set asset-levels { asset-id: asset-id } { level: u1 })
     (var-set last-asset-id asset-id)
     (ok asset-id)
   )
@@ -289,10 +298,26 @@
 (define-read-only (is-rented-by (asset-id uint) (user principal))
   (match (map-get? active-rentals { asset-id: asset-id })
     rental
-      (and 
+      (and
         (is-eq (get renter rental) user)
         (< burn-block-height (get end-block rental))
       )
     false
+  )
+)
+
+(define-public (upgrade-asset (asset-id uint))
+  (let
+    (
+      (asset-info (unwrap! (map-get? asset-details { asset-id: asset-id }) err-not-found))
+      (current-level (default-to u1 (get level (map-get? asset-levels { asset-id: asset-id }))))
+      (sender tx-sender)
+      (fee (var-get upgrade-fee))
+    )
+    (asserts! (is-eq (get current-owner asset-info) sender) err-unauthorized)
+    (asserts! (< current-level (var-get max-level)) err-max-level-reached)
+    (try! (stx-transfer? fee sender contract-owner))
+    (map-set asset-levels { asset-id: asset-id } { level: (+ current-level u1) })
+    (ok true)
   )
 )
